@@ -74,3 +74,15 @@ LocalFileDbSrc.prototype = Object.create(IDbSrc.prototype);
 LocalFileDbSrc.prototype.get = function(q){};
 LocalFileDbSrc.prototype.set = function(q){};
 LocalFileDbSrc.prototype.del = function(q){};
+
+// VocabUI: Object handling the GUI methods
+var VocabUI = function(params) {};
+VocabUI.prototype.render = function(params){};
+
+// VocabApp: Object handling the application
+var VocabApp = function() {
+    this.DataSource = new SimulDbSrc();
+    this.UI = new VocabUI;
+}
+VocabApp.prototype.initialise = function(){};
+VocabApp.prototype.display = function(params){};
