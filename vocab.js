@@ -34,13 +34,27 @@ var SimulDbSrc = function() {
     //>{ module:MODULE, phrase:PHRASE, translation:TRANSLATION,
     //>  usage:[{usage:USAGE, translation:TRANLSATION}] }
     this.db = [ {module:"Basics", phrase:"ik", translation:"I",
-		 usage:[{usage:"Ik ben", translation:"I am"}]} ];
+		 usage:[{usage:"Ik ben", translation:"I am"}]},
+		{module:"Basics", phrase:"jij", translation:"you",
+		 usage:[{usage:"Jij bent", translation:"You are"}]},
+		{module:"Basics", phrase:"je", translation:"you",
+		 usage:[{usage:"Je bent", translation:"You are"},
+			{usage:"Ik heb je", translation:"I have you"}]},
+		{phrase:"wij", translation:"we"},
+		{module:"Verbs", phrase:"rennen", translation:"to run",
+		 usage:[{usage:"Ik ren", translation:"I run"},
+			{usage:"Je rent", translation:"You run"},
+			{usage:"Wij rennen", translation:"We run"}]}];
 };
 // Implements IDbSrc
 SimulDbSrc.prototype = Object.create(IDbSrc.prototype);
 SimulDbSrc.prototype.get = function(q){
     q = q || {};
     if(typeof q != "object") q = {"filter":q.toString()};
+    var mods = q.hasOwnProperty("mods") ? q.mods : false;
+    // Modules list mode
+    if(mods) return this.getmods();
+    // Items query mode
     var module = q.hasOwnProperty("module") ? q.module : undefined;
     var filter = q.hasOwnProperty("filter") ? q.filter : undefined;
     var querydb = [];
@@ -64,6 +78,17 @@ SimulDbSrc.prototype.del = function(q){
     var index = q.hasOwnProperty("index") ? q.index : undefined;
     if(index && index < this.db.length) this.db.splice(index, 1);
 };
+// Extends IDbSrc
+SimulDbSrc.prototype.getmods = function(){
+    var mods = {};
+    for(var i in this.db) {
+	if(!this.db[i].hasOwnProperty("module")) continue;
+	if(!mods.hasOwnProperty(this.db[i].module))
+	    mods[this.db[i].module] = 1;
+	else ++mods[this.db[i].module];
+    }
+    return mods;
+};
 
 // LocalFileDbSrc: Object abstracting and wrapping operations for a local file
 //>with a special format acting as a database.
@@ -74,15 +99,76 @@ LocalFileDbSrc.prototype = Object.create(IDbSrc.prototype);
 LocalFileDbSrc.prototype.get = function(q){};
 LocalFileDbSrc.prototype.set = function(q){};
 LocalFileDbSrc.prototype.del = function(q){};
+// ExtendsIDbSrc
+LocalFileDbSrc.prototype.getmods = function(){};
 
 // VocabUI: Object handling the GUI methods
-var VocabUI = function(params) {};
-VocabUI.prototype.render = function(params){};
+var VocabUI = function(containerId) {
+    if(!document.getElementById(containerId)) {
+	var container = document.createElement("div");
+	container.id = containerId;
+	document.body.insertBefore(container, document.body.firstChild);
+    }
+    this.ContainerId = containerId;
+};
+var DEFFIELDS = { "Word/Phrase":"phrase", "Translation":"translation",
+		  "Module":"module",
+		  "Usage":function(item){
+		      if(!item.hasOwnProperty("usage")) return "N/A";
+		      var html = '<table>';
+		      for(var u in item.usage) html += "<tr><td><i>" + item.usage[u].usage + "</i> : " + item.usage[u].translation + "</td></tr>";
+		      html += '</table>';
+		      return html;
+		  }};
+VocabUI.prototype.render = function(q){
+    q = q || {};
+    if(typeof q != "object") q = {"items":[]};
+    //
+    var module = q.hasOwnProperty("module") ? q.module : undefined;
+    var filter = q.hasOwnProperty("filter") ? q.filter : undefined;
+    var modlist = q.hasOwnProperty("modlist") ? q.modlist : {};
+    var items = q.hasOwnProperty("items") ? q.items : [];
+    var total = q.hasOwnProperty("total") ? q.total : "N/A";
+    var fields = q.hasOwnProperty("fields") ? q.fields : DEFFIELDS;
+    //
+    var html = '<style type="text/css">';
+    html += "#modlist { float:left;padding:2px;width:96px;margin:2px; }\n";
+    html += ".moditem { float:left;clear:both;cursor:default;margin:1px;padding:2px;font:9pt Arial,sans-serif; }\n";
+    html += ".modselected { color:white;background-color:black;border-radius:5px; }\n";
+    html += "#itemlist { float:left;padding:2px;margin:2px; }\n";
+    html += ".headerc { cursor:default;font-family:Arial,sans-serif;border-bottom:1px solid; padding:4px; }\n";
+    html += ".listitem { font:10pt Arial,sans-serif; }\n";
+    html += ".evenitem { background:#eee }\n.odditem { background:none; }\n";
+    html += "</style>";
+    html += '<div id="modlist">';
+    html += '<span class="moditem' + (!module ? " modselected" : "") + '">All ' + " (" + total + ')</span>';
+    for(var m in modlist)
+	html += '<span class="moditem' + (module == m ? " modselected" : "") + '">' + m + " (" + modlist[m] + ")</span>";
+    html += "</div>";
+    html += '<div id="itemlist">';
+    html += '<table cellspacing=0><thead><tr>';
+    for(var f in fields) html += '<th class="headerc">' + f + "</td>";
+    html += "</tr></thead><tbody>";
+    for(var i in items) {
+	html += '<tr class="listitem ' + (i%2 ? "evenitem" : "odditem") + '">';
+	for(var f in fields) {
+	    var formatter = (typeof fields[f] == 'function') ? fields[f] : function(item) { return item.hasOwnProperty(fields[f]) ? item[fields[f]] : "N/A"; };
+	    html += "<td>" + formatter(items[i].item) + "</td>";
+	}
+	html += "</tr>";
+    }
+    html += "</tbody></table></div>";
+    document.getElementById(this.ContainerId).innerHTML = html;
+};
 
 // VocabApp: Object handling the application
-var VocabApp = function() {
-    this.DataSource = new SimulDbSrc();
-    this.UI = new VocabUI;
+var VocabApp = function(containerId, dbsrc) {
+    this.DB = new VocabDB(dbsrc || new SimulDbSrc());
+    this.UI = new VocabUI(containerId);
 }
-VocabApp.prototype.initialise = function(){};
+VocabApp.prototype.initialise = function(){
+    this.UI.render({"modlist":this.DB.Get({"mods":1}),
+		    "items":this.DB.Get(),
+		    "total":this.DB.Get().length });
+};
 VocabApp.prototype.display = function(params){};
