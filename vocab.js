@@ -133,42 +133,53 @@ VocabUI.prototype.render = function(q){
     //
     var html = '<style type="text/css">';
     html += "#modlist { float:left;padding:2px;width:96px;margin:2px; }\n";
-    html += ".moditem { float:left;clear:both;cursor:default;margin:1px;padding:2px;font:9pt Arial,sans-serif; }\n";
-    html += ".modselected { color:white;background-color:black;border-radius:5px; }\n";
+    html += "#modlist>span { float:left;clear:both;cursor:default;margin:1px;padding:2px;font:9pt Arial,sans-serif; }\n";
+    html += "#modlist>span.modselected { color:white;background-color:black;border-radius:5px; }\n";
     html += "#itemlist { float:left;padding:2px;margin:2px; }\n";
-    html += ".headerc { cursor:default;font-family:Arial,sans-serif;border-bottom:1px solid; padding:4px; }\n";
-    html += ".listitem { font:10pt Arial,sans-serif; }\n";
-    html += ".evenitem { background:#eee }\n.odditem { background:none; }\n";
+    html += "#itemlist>table>thead>tr>th { cursor:default;font-family:Arial,sans-serif;border-bottom:1px solid; padding:4px; }\n";
+    html += "#itemlist>table>tbody>tr { font:10pt Arial,sans-serif; }\n";
+    html += "#itemlist>table>tbody>tr>td { padding:2px; }\n";
+    html += "#itemlist>table>tbody>tr:nth-child(even) { background:#eee; }\n";
+    html += "#itemlist>table>tbody>tr:nth-child(odd) { background:#none; }\n";
+    html += "#itemlist>table>tbody>tr>:last-child { visibility:hidden; }\n";
+    html += "#itemlist>table>tbody>tr:hover>:last-child { visibility:visible; }\n";
+    html += "#addbtn { float:left;margin:5px;cursor:pointer; }\n";
     html += "</style>";
     html += '<div id="modlist">';
-    html += '<span class="moditem' + (!module ? " modselected" : "") + '">All ' + " (" + total + ')</span>';
+    html += '<span' + (!module ? ' class="modselected"' : "") + '>All ' + " (" + total + ')</span>';
     for(var m in modlist)
-	html += '<span class="moditem' + (module == m ? " modselected" : "") + '">' + m + " (" + modlist[m] + ")</span>";
+	html += '<span' + (module == m ? ' class="modselected"' : "") + '>' + m + " (" + modlist[m] + ")</span>";
     html += "</div>";
     html += '<div id="itemlist">';
     html += '<table cellspacing=0><thead><tr>';
-    for(var f in fields) html += '<th class="headerc">' + f + "</td>";
-    html += "</tr></thead><tbody>";
+    for(var f in fields) html += '<th>' + f + "</th>";
+    html += "<td></td></tr></thead><tbody>";
     for(var i in items) {
-	html += '<tr class="listitem ' + (i%2 ? "evenitem" : "odditem") + '">';
+	html += '<tr>';
 	for(var f in fields) {
 	    var formatter = (typeof fields[f] == 'function') ? fields[f] : function(item) { return item.hasOwnProperty(fields[f]) ? item[fields[f]] : "N/A"; };
 	    html += "<td>" + formatter(items[i].item) + "</td>";
 	}
+	html += '<td><img src="edit.png" /><img src="remove.png" /></td>';
 	html += "</tr>";
     }
     html += "</tbody></table></div>";
+    html += '<img id="addbtn" src="add.png" alt="Add Item" title="Add Item" onclick="VocabApp.addItem()" />';
     document.getElementById(this.ContainerId).innerHTML = html;
 };
 
 // VocabApp: Object handling the application
-var VocabApp = function(containerId, dbsrc) {
-    this.DB = new VocabDB(dbsrc || new SimulDbSrc());
-    this.UI = new VocabUI(containerId);
-}
-VocabApp.prototype.initialise = function(){
-    this.UI.render({"modlist":this.DB.Get({"mods":1}),
-		    "items":this.DB.Get(),
-		    "total":this.DB.Get().length });
+var VocabApp = {
+    "initialise":function(containerId, dbsrc) {
+	this.DB = new VocabDB(dbsrc || new SimulDbSrc())
+	this.UI = new VocabUI(containerId);
+	this.UI.render({"modlist":this.DB.Get({"mods":1}),
+			"items":this.DB.Get(),
+			"total":this.DB.Get().length });
+    },
+    "addItem":function(params) {
+	window.alert("Add Item");
+    },
+    "editItem":function(params){},
+    "deleteItem":function(params){}
 };
-VocabApp.prototype.display = function(params){};
