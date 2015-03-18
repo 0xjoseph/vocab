@@ -141,8 +141,8 @@ VocabUI.prototype.render = function(q){
     html += "#itemlist>table>tbody>tr>td { padding:2px; }\n";
     html += "#itemlist>table>tbody>tr:nth-child(even) { background:#eee; }\n";
     html += "#itemlist>table>tbody>tr:nth-child(odd) { background:#none; }\n";
-    html += "#itemlist>table>tbody>tr>:last-child { visibility:hidden; }\n";
-    html += "#itemlist>table>tbody>tr:hover>:last-child { visibility:visible; }\n";
+    html += "#itemlist>table>tbody>tr>:last-child>* { visibility:hidden; }\n";
+    html += "#itemlist>table>tbody>tr:hover>:last-child>* { visibility:visible; }\n";
     html += "#itemlist>table>tbody>tr:hover>:last-child>img { cursor:pointer; }\n";
     html += "#addbtn { float:left;margin:5px;cursor:pointer; }\n";
     html += "</style>";
@@ -153,11 +153,15 @@ VocabUI.prototype.render = function(q){
     html += "</div>";
     html += '<div id="itemlist">';
     html += '<table cellspacing=0><thead><tr>';
-    for(var f in fields) html += '<th>' + f + "</th>";
+    for(var f in fields) {
+	if(f == "Module" && module) continue;
+	html += '<th>' + f + "</th>";
+    }
     html += "<td></td></tr></thead><tbody>";
     for(var i in items) {
 	html += '<tr>';
 	for(var f in fields) {
+	    if(f == "Module" && module) continue;
 	    var formatter = (typeof fields[f] == 'function') ? fields[f] : function(item) { return item.hasOwnProperty(fields[f]) ? item[fields[f]] : "N/A"; };
 	    html += "<td>" + formatter(items[i].item) + "</td>";
 	}
