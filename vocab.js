@@ -67,11 +67,11 @@ SimulDbSrc.prototype.get = function(q){
 };
 SimulDbSrc.prototype.set = function(q){
     if(!q || typeof q != "object") throw new TypeError();
-    var index = q.hasOwnProperty("index") ? q.index : undefined;
+    var index = q.hasOwnProperty("index") ? parseInt(q.index) : undefined;
     var item = q.hasOwnProperty("item") ? q.item : undefined;
     if(!item || typeof item != "object") throw new Error();
     // No validation on the item
-    if(index && index < this.db.length)
+    if(index && !isNaN(index) && index < this.db.length)
 	for(prop in item) this.db[index][prop] = item[prop];
     else this.db.push(item);
 };
@@ -191,20 +191,24 @@ VocabUI.prototype.showPopup = function(msg, data) {
 	    msg = PopupForm.replace("%(formtitle)s", "Add Item");
 	    for(var i in PopupFields) 
 		msg = msg.replace("%(" + PopupFields[i] + ")s", "");
+	    msg = msg.replace("%(index)s", "");
 	    break;
 	case PopupType.EditForm:
 	    // Validate
 	    if(!data) throw new ReferenceError();
+	    if(!data.hasOwnProperty("index") || !data.hasOwnProperty("item"))
+		throw new TypeError();
 	    // Display
 	    msg = PopupForm.replace("%(formtitle)s", "Edit Item");
 	    for(var i in PopupFields) {
 		var value = "", f = PopupFields[i];
 		if(f == "usage")
-		    for(var j in data[f])
-			value += (value ? ",\n" : "") + data[f][j].usage + ":" + data[f][j].translation; 
-		else value = data.hasOwnProperty(f) ? data[f] : "";
+		    for(var j in data.item[f])
+			value += (value ? ",\n" : "") + data.item[f][j].usage + ":" + data.item[f][j].translation; 
+		else value = data.item.hasOwnProperty(f) ? data.item[f] : "";
 		msg = msg.replace("%(" + f + ")s", value);
 	    }
+	    msg = msg.replace("%(index)s", data.index);
 	    break;
 	}
 	document.getElementById("popupWindow").innerHTML = msg;
@@ -217,8 +221,39 @@ VocabUI.prototype.hidePopup = function(msg) {
 
 var PopupType = { "AddForm":1, "EditForm":2 };
 var PopupFields = [ 'phrase', 'translation', 'module', 'usage' ];
-var PopupForm = '<h2>%(formtitle)s</h2><label>Word/Phrase:<input type="text" name="phrase" value="%(phrase)s" placeholder="Word/Phrase" /></label><br /><label>Translation:<input type="text" name="translation" value="%(translation)s" placeholder="Translation" /></label><label>Module:<input type="text" name="module" value="%(module)s" placeholder="Module" /></label><label>Usage:<textarea name="usage" placeholder="Usage">%(usage)s</textarea></label><span>Usage is a comma-separated list of column-separated tuples with the form [usage]:[translation] (you may add each on a lign for clarity).</span><button>Save</button><button onclick="VocabApp.UI.hidePopup()">Cancel</button>';
+var PopupForm = '<h2>%(formtitle)s</h2><label>Word/Phrase:<input type="text" name="phrase" value="%(phrase)s" placeholder="Word/Phrase" /></label><br /><label>Translation:<input type="text" name="translation" value="%(translation)s" placeholder="Translation" /></label><label>Module:<input type="text" name="module" value="%(module)s" placeholder="Module" /></label><label>Usage:<textarea name="usage" placeholder="Usage">%(usage)s</textarea></label><span>Usage is a comma-separated list of column-separated tuples with the form [usage]:[translation] (you may add each on a lign for clarity).</span><button name="saveItem" onclick="VocabApp.saveItem(getPopupFormData())" data-index="%(index)s">Save</button><button onclick="VocabApp.UI.hidePopup()">Cancel</button>';
 var getPopupFormData = function() {
+    var form = {};
+    for(var i in PopupFields) {
+	form[PopupFields[i]] = document.querySelector("#popupWindow [name=" + PopupFields[i] + "]").value;
+    }
+    var idx = document.querySelector("#popupWindow [name=saveItem]").dataset.index;
+    console.debug(idx);
+    if(!form.phrase || !form.translation) {
+	window.alert("Missing data");
+	return false;
+    }
+    var re = /([^:]+\s*:\s*[^:]+\s*,*\s*)+/;
+    if(!form.usage) {
+	VocabApp.UI.hidePopup();
+	return {"index":idx, "item":form};
+    }
+    if(!re.test(form.usage)) {
+	alert("Invalid comma-separated list of column-separated tuples with the form [usage]:[translation] was provided");
+	return false;
+    }
+    var usage = [], inputusage = form.usage.trim().trim(',').split(',');
+    for(var i in inputusage) {
+	if(inputusage[i]) {
+	    var usageinstance = inputusage[i].trim().trim(':').split(':');
+	    if(usageinstance.length >= 2)
+		usage.push({"usage":usageinstance[0].trim(),
+			    "translation":usageinstance[1].trim()});
+	}
+    }
+    form.usage = usage;
+    VocabApp.UI.hidePopup();
+    return {"index":idx, "item":form};
 };
 
 // VocabApp: Object handling the application
@@ -250,10 +285,13 @@ var VocabApp = {
     "editItem":function(idx){
 	var item = this.DB.Get({"index":idx});
 	if(item)
-	    this.UI.showPopup(PopupType.EditForm, item);
+	    this.UI.showPopup(PopupType.EditForm, {"index":idx, "item":item});
     },
-    "saveItem":function(params) {
-	
+    "saveItem":function(query) {
+	if(query) {
+	    this.DB.Set(query);
+	    this.selectModule(this.module);
+	}
     },
     "deleteItem":function(idx){
 	if(window.confirm("Are you sure you want to delete this item?")) {
