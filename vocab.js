@@ -57,7 +57,9 @@ SimulDbSrc.prototype.get = function(q){
     // Items query mode
     var module = q.hasOwnProperty("module") ? q.module : undefined;
     var filter = q.hasOwnProperty("filter") ? q.filter : undefined;
+    var index = q.hasOwnProperty("index") ? parseInt(q.index) : undefined;
     var querydb = [];
+    if(!isNaN(index) && index < this.db.length) return this.db[index];
     for(var i in this.db)
 	if((!module || this.db[i].module == module) && (!filter || this.db[i].phrase.toLowerCase().indexOf(filter.toLowerCase()) >= 0 || this.db[i].translation.toLowerCase().indexOf(filter.toLowerCase()) >= 0))
 	    querydb.push({"index":i, "item":this.db[i]});
@@ -142,9 +144,18 @@ VocabUI.prototype.render = function(q){
     html += "#itemlist>table>tbody>tr:nth-child(even) { background:#eee; }\n";
     html += "#itemlist>table>tbody>tr:nth-child(odd) { background:#none; }\n";
     html += "#itemlist>table>tbody>tr>:last-child>* { visibility:hidden; }\n";
+    html += "#itemlist>table>tbody>tr:hover { background:#ccc;  }\n";
     html += "#itemlist>table>tbody>tr:hover>:last-child>* { visibility:visible; }\n";
     html += "#itemlist>table>tbody>tr:hover>:last-child>img { cursor:pointer; }\n";
     html += "#addbtn { float:left;margin:5px;cursor:pointer; }\n";
+    html += "#popup { display:none; }\n";
+    html += "#popupCover { z-index:998;position:absolute;left:0;top:0;right:0;bottom:0;background-color:black;opacity:0.85; }\n";
+    html += "#popupWindow { z-index:999;position:absolute;left:25%;top:15%;right:25%;bottom:35%;background:white;opacity:1;padding:4px;min-width:400px;min-height:300px;border-radius:12px;line-height:1.5; font-family:Arial,sans-serif; }";
+    html += "#popupWindow label { vertical-align:top;float:left;clear:both; }\n";
+    html += "#popupWindow input[type=text] { margin-left:8px;width:256px; }\n";
+    html += "#popupWindow textarea { margin-left:8px;width:256px;height:72px; }\n";
+    html += "#popupWindow span { font-size:8pt;float:left;clear:both; }\n";
+    html += "#popupWindow button { float:right;margin-right:8px; }\n";
     html += "</style>";
     html += '<div id="modlist">';
     html += '<span' + (!module ? ' class="modselected"' : ' onclick="VocabApp.selectModule()"') + ' title="All">All ' + " (" + total + ')</span>';
@@ -157,7 +168,7 @@ VocabUI.prototype.render = function(q){
 	if(f == "Module" && module) continue;
 	html += '<th>' + f + "</th>";
     }
-    html += "<td></td></tr></thead><tbody>";
+    html += "<th></th></tr></thead><tbody>";
     for(var i in items) {
 	html += '<tr>';
 	for(var f in fields) {
@@ -165,12 +176,49 @@ VocabUI.prototype.render = function(q){
 	    var formatter = (typeof fields[f] == 'function') ? fields[f] : function(item) { return item.hasOwnProperty(fields[f]) ? item[fields[f]] : "N/A"; };
 	    html += "<td>" + formatter(items[i].item) + "</td>";
 	}
-	html += '<td><img src="edit.png" alt="Edit" title="Edit" onclick="VocabApp.editItem(' + i + ')" /><img src="remove.png" alt="Delete" title="Delete" onclick="VocabApp.deleteItem(' + i + ')" /></td>';
+	html += '<td><img src="edit.png" alt="Edit" title="Edit" onclick="VocabApp.editItem(' + items[i].index + ')" /><img src="remove.png" alt="Delete" title="Delete" onclick="VocabApp.deleteItem(' + items[i].index + ')" /></td>';
 	html += "</tr>";
     }
     html += "</tbody></table></div>";
-    html += '<img id="addbtn" src="add.png" alt="Add Item" title="Add Item" onclick="VocabApp.addItem()" />';
+    html += '<img id="addbtn" src="add.png" alt="Add Item" title="Add Item" onclick="VocabApp.addItem();" />';
+    html += '<div id="popup"><div id="popupCover" onclick="VocabApp.UI.hidePopup()"></div><div id="popupWindow">Test</div></div>';
     document.getElementById(this.ContainerId).innerHTML = html;
+};
+VocabUI.prototype.showPopup = function(msg, data) {
+    if(msg) {
+	switch(msg) {
+	case PopupType.AddForm:
+	    msg = PopupForm.replace("%(formtitle)s", "Add Item");
+	    for(var i in PopupFields) 
+		msg = msg.replace("%(" + PopupFields[i] + ")s", "");
+	    break;
+	case PopupType.EditForm:
+	    // Validate
+	    if(!data) throw new ReferenceError();
+	    // Display
+	    msg = PopupForm.replace("%(formtitle)s", "Edit Item");
+	    for(var i in PopupFields) {
+		var value = "", f = PopupFields[i];
+		if(f == "usage")
+		    for(var j in data[f])
+			value += (value ? ",\n" : "") + data[f][j].usage + ":" + data[f][j].translation; 
+		else value = data.hasOwnProperty(f) ? data[f] : "";
+		msg = msg.replace("%(" + f + ")s", value);
+	    }
+	    break;
+	}
+	document.getElementById("popupWindow").innerHTML = msg;
+    }
+    document.getElementById("popup").style.display = "block";
+};
+VocabUI.prototype.hidePopup = function(msg) {
+    document.getElementById("popup").style.display = "none";
+};
+
+var PopupType = { "AddForm":1, "EditForm":2 };
+var PopupFields = [ 'phrase', 'translation', 'module', 'usage' ];
+var PopupForm = '<h2>%(formtitle)s</h2><label>Word/Phrase:<input type="text" name="phrase" value="%(phrase)s" placeholder="Word/Phrase" /></label><br /><label>Translation:<input type="text" name="translation" value="%(translation)s" placeholder="Translation" /></label><label>Module:<input type="text" name="module" value="%(module)s" placeholder="Module" /></label><label>Usage:<textarea name="usage" placeholder="Usage">%(usage)s</textarea></label><span>Usage is a comma-separated list of column-separated tuples with the form [usage]:[translation] (you may add each on a lign for clarity).</span><button>Save</button><button onclick="VocabApp.UI.hidePopup()">Cancel</button>';
+var getPopupFormData = function() {
 };
 
 // VocabApp: Object handling the application
@@ -181,6 +229,7 @@ var VocabApp = {
 	this.UI.render({"modlist":this.DB.Get({"mods":1}),
 			"items":this.DB.Get(),
 			"total":this.DB.Get().length });
+	this.module = undefined;
     },
     "selectModule":function(modname) {
 	if(modname) {
@@ -188,14 +237,29 @@ var VocabApp = {
 			    "module":modname,
 			    "items":this.DB.Get({"module":modname}),
 			    "total":this.DB.Get().length});
+	    this.module = modname;
 	}
-	else this.UI.render({"modlist":this.DB.Get({"mods":1}),
-			     "items":this.DB.Get(),
-			     "total":this.DB.Get().length });
+	else {
+	    this.UI.render({"modlist":this.DB.Get({"mods":1}),
+			    "items":this.DB.Get(),
+			    "total":this.DB.Get().length });
+	    this.module = undefined;
+	}
     },
-    "addItem":function(params) {
-	window.alert("Add Item");
+    "addItem":function() { this.UI.showPopup(PopupType.AddForm); },
+    "editItem":function(idx){
+	var item = this.DB.Get({"index":idx});
+	if(item)
+	    this.UI.showPopup(PopupType.EditForm, item);
     },
-    "editItem":function(params){},
-    "deleteItem":function(params){}
+    "saveItem":function(params) {
+	
+    },
+    "deleteItem":function(idx){
+	if(window.confirm("Are you sure you want to delete this item?")) {
+	    this.DB.Delete({"index":idx});
+	    this.selectModule(this.module);
+	    this.UI.showPopup("Item Deleted!");
+	}
+    }
 };
