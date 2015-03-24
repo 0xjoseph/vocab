@@ -6,6 +6,7 @@ var VocabDB = function(dbsrc) {
     if(!(dbsrc instanceof IDbSrc))
 	throw new TypeError("dbsrc does not implement IDbSrc");
     this.DB = dbsrc;
+    Object.defineProperty(this, "LoadStatus", {get:function(){return this.DB.hasOwnProperty("LoadStatus") ? this.DB.LoadStatus : 2; }});
 };
 VocabDB.prototype.Get = function(query) {
     return this.DB.get(query);
@@ -95,14 +96,91 @@ SimulDbSrc.prototype.getmods = function(){
 // LocalFileDbSrc: Object abstracting and wrapping operations for a local file
 //>with a special format acting as a database.
 // Constructor
-var LocalFileDbSrc = function(params) {};
+var LocalFileDbSrc = function(fileobj/*, onload, onfail*/) {
+    // Variables indicating status
+    this.LoadStatus = 0;
+    this.File = undefined;
+    this.Modified = undefined;
+    // Array to contain data items
+    this.db = [];
+    // Load file object, if any
+    if(fileobj) {
+	this.File = fileobj;
+	this.LoadStatus = 1;
+	try {
+	    var reader = new LocalDbFileReader(this);
+	    reader.readAsText(fileobj);
+	}
+	catch(e) { this.File = undefined; this.LoadStatus = 0; }
+    }
+};
 // Implements IDbSrc
 LocalFileDbSrc.prototype = Object.create(IDbSrc.prototype);
-LocalFileDbSrc.prototype.get = function(q){};
+LocalFileDbSrc.prototype.get = function(q) {
+    return SimulDbSrc.prototype.get.call(this, q);
+};
 LocalFileDbSrc.prototype.set = function(q){};
 LocalFileDbSrc.prototype.del = function(q){};
 // ExtendsIDbSrc
-LocalFileDbSrc.prototype.getmods = function(){};
+LocalFileDbSrc.prototype.getmods = function(){
+    var mods = {};
+    for(var i in this.db) {
+	if(!this.db[i].hasOwnProperty("module")) continue;
+	if(!mods.hasOwnProperty(this.db[i].module))
+	    mods[this.db[i].module] = 1;
+	else ++mods[this.db[i].module];
+    }
+    return mods;
+};
+
+// LocalDbFileReader: Special FileReader
+var LocalDbFileReader = function(parentdb){
+    if(!parentdb || !(parentdb instanceof LocalFileDbSrc))
+	throw new TypeError();
+    var f = new FileReader();
+    f.parent =  parentdb;
+    f.onloadend = function(e) {
+	this.parent.LoadStatus = 2;
+	if(!this.parent.Modified
+	   || this.parent.File.lastModified > this.parent.Modified) {
+	    this.parent.Modified = this.parent.File.lastModified;
+	    var lines = this.result.trim().split('\n');
+	    this.parent.db = [];
+	    for(var i in lines) {
+		var cleanline = lines[i].trim(), c = cleanline[0];
+		// The following RegExp could need lots of improvements
+		var re = /[^,]+,[^,]+(,[^,]+)?(,[^,:]+:[^,:]+)*/;
+		if(c && c != '#' && re.test(cleanline)) {
+		    var flds = cleanline.split(',');
+		    var item = { "phrase":flds[0].trim(),
+				 "translation":flds[1].trim() };
+		    if(flds.length > 2) {
+			if(flds[2]) item.module = flds[2];
+			if(flds.length > 3) {
+			    var usage = [];
+			    for(var j = 3; j < flds.length; ++j) {
+				if(/[^:]+:[^:]/.test(flds[j])) {
+				    var usages = flds[j].split(':');
+				    usage.push({"usage":usages[0].trim(),
+						"translation":usages[1].trim()})
+				}
+			    }
+			}
+			if(usage.length) item.usage = usage;
+		    }
+		    this.parent.db.push(item);
+		}
+	    }
+	}
+    };
+    f.onerror = function(e) {
+	this.parent.LoadStatus = 0;
+	this.parent.File = undefined;
+	this.parent.Modified = undefined;
+    }
+    return f;
+};
+
 
 // VocabUI: Object handling the GUI methods
 var VocabUI = function(containerId) {
@@ -126,62 +204,80 @@ VocabUI.prototype.render = function(q){
     q = q || {};
     if(typeof q != "object") q = {"items":[]};
     //
-    var module = q.hasOwnProperty("module") ? q.module : undefined;
-    var filter = q.hasOwnProperty("filter") ? q.filter : undefined;
-    var modlist = q.hasOwnProperty("modlist") ? q.modlist : {};
-    var items = q.hasOwnProperty("items") ? q.items : [];
-    var total = q.hasOwnProperty("total") ? q.total : "N/A";
-    var fields = q.hasOwnProperty("fields") ? q.fields : DEFFIELDS;
-    //
-    var html = '<style type="text/css">';
-    html += "#modlist { float:left;padding:2px;width:96px;margin:2px; }\n";
-    html += "#modlist>span { float:left;clear:both;cursor:pointer;margin:1px;padding:2px;font:9pt Arial,sans-serif; }\n";
-    html += "#modlist>span.modselected { color:white;background-color:black;border-radius:5px;cursor:default; }\n";
-    html += "#itemlist { float:left;padding:2px;margin:2px; }\n";
-    html += "#itemlist>table>thead>tr>th { cursor:default;font-family:Arial,sans-serif;border-bottom:1px solid; padding:4px; }\n";
-    html += "#itemlist>table>tbody>tr { font:10pt Arial,sans-serif; }\n";
-    html += "#itemlist>table>tbody>tr>td { padding:2px; }\n";
-    html += "#itemlist>table>tbody>tr:nth-child(even) { background:#eee; }\n";
-    html += "#itemlist>table>tbody>tr:nth-child(odd) { background:#none; }\n";
-    html += "#itemlist>table>tbody>tr>:last-child>* { visibility:hidden; }\n";
-    html += "#itemlist>table>tbody>tr:hover { background:#ccc;  }\n";
-    html += "#itemlist>table>tbody>tr:hover>:last-child>* { visibility:visible; }\n";
-    html += "#itemlist>table>tbody>tr:hover>:last-child>img { cursor:pointer; }\n";
-    html += "#addbtn { float:left;margin:5px;cursor:pointer; }\n";
-    html += "#popup { display:none; }\n";
-    html += "#popupCover { z-index:998;position:absolute;left:0;top:0;right:0;bottom:0;background-color:black;opacity:0.85; }\n";
-    html += "#popupWindow { z-index:999;position:absolute;left:25%;top:15%;right:25%;bottom:35%;background:white;opacity:1;padding:4px;min-width:400px;min-height:300px;border-radius:12px;line-height:1.5; font-family:Arial,sans-serif; }";
-    html += "#popupWindow label { vertical-align:top;float:left;clear:both; }\n";
-    html += "#popupWindow input[type=text] { margin-left:8px;width:256px; }\n";
-    html += "#popupWindow textarea { margin-left:8px;width:256px;height:72px; }\n";
-    html += "#popupWindow span { font-size:8pt;float:left;clear:both; }\n";
-    html += "#popupWindow button { float:right;margin-right:8px; }\n";
-    html += "</style>";
-    html += '<div id="modlist">';
-    html += '<span' + (!module ? ' class="modselected"' : ' onclick="VocabApp.selectModule()"') + ' title="All">All ' + " (" + total + ')</span>';
-    for(var m in modlist)
-	html += '<span' + (module == m ? ' class="modselected"' : ' onclick="VocabApp.selectModule(\'' + m + '\')"') + ' title="' + m + '">' + m + " (" + modlist[m] + ")</span>";
-    html += "</div>";
-    html += '<div id="itemlist">';
-    html += '<table cellspacing=0><thead><tr>';
-    for(var f in fields) {
-	if(f == "Module" && module) continue;
-	html += '<th>' + f + "</th>";
+    var init = q.hasOwnProperty("init") ? q.init : true;
+    var html;
+    if(!init) {
+	// Initialise. Due to security constraints in web browsers, the DB
+	//>file must be selected by the user in a file input form and not
+	//>accessed directly. For this we display a popup form to request
+	//>the file selection. All methods will check for the Loaded flag,
+	//>which will be set after the file is selected.
+	var popup = '<style type="text/css">';
+	popup += "#filePopupCover { z-index:998;position:absolute;left:0;top:0;right:0;bottom:0;background-color:black;opacity:0.85; }\n";
+	popup += "#filePopupWindow { z-index:999;position:absolute;left:25%;top:15%;right:25%;bottom:35%;background:white;opacity:1;padding:4px;min-width:400px;min-height:300px;border-radius:12px;line-height:1.5; font-family:Arial,sans-serif; }";
+	popup += "#fileStatus { font-size:9pt;cursor:default; }";
+	popup += "</style>";
+	popup += '<div id="filePopup"><div id="filePopupCover"></div><div id="filePopupWindow"><h2>Select DB file</h2><input type="file" onchange="loadLocalFile(this)" /><span id="fileStatus"></span></div></div>';
+	html = popup;
     }
-    html += "<th></th></tr></thead><tbody>";
-    for(var i in items) {
-	html += '<tr>';
+    else {
+	var module = q.hasOwnProperty("module") ? q.module : undefined;
+	var filter = q.hasOwnProperty("filter") ? q.filter : undefined;
+	var modlist = q.hasOwnProperty("modlist") ? q.modlist : {};
+	var items = q.hasOwnProperty("items") ? q.items : [];
+	var total = q.hasOwnProperty("total") ? q.total : "N/A";
+	var fields = q.hasOwnProperty("fields") ? q.fields : DEFFIELDS;
+	//
+	html = '<style type="text/css">';
+	html += "#modlist { float:left;padding:2px;width:96px;margin:2px; }\n";
+	html += "#modlist>span { float:left;clear:both;cursor:pointer;margin:1px;padding:2px;font:9pt Arial,sans-serif; }\n";
+	html += "#modlist>span.modselected { color:white;background-color:black;border-radius:5px;cursor:default; }\n";
+	html += "#itemlist { float:left;padding:2px;margin:2px; }\n";
+	html += "#itemlist>table>thead>tr>th { cursor:default;font-family:Arial,sans-serif;border-bottom:1px solid; padding:4px; }\n";
+	html += "#itemlist>table>tbody>tr { font:10pt Arial,sans-serif; }\n";
+	html += "#itemlist>table>tbody>tr>td { padding:2px; }\n";
+	html += "#itemlist>table>tbody>tr:nth-child(even) { background:#eee; }\n";
+	html += "#itemlist>table>tbody>tr:nth-child(odd) { background:#none; }\n";
+	html += "#itemlist>table>tbody>tr>:last-child>* { visibility:hidden; }\n";
+	html += "#itemlist>table>tbody>tr:hover { background:#ccc;  }\n";
+	html += "#itemlist>table>tbody>tr:hover>:last-child>* { visibility:visible; }\n";
+	html += "#itemlist>table>tbody>tr:hover>:last-child>img { cursor:pointer; }\n";
+	html += "#addbtn { float:left;margin:5px;cursor:pointer; }\n";
+	html += "#popup { display:none; }\n";
+	html += "#popupCover { z-index:998;position:absolute;left:0;top:0;right:0;bottom:0;background-color:black;opacity:0.85; }\n";
+	html += "#popupWindow { z-index:999;position:absolute;left:25%;top:15%;right:25%;bottom:35%;background:white;opacity:1;padding:4px;min-width:400px;min-height:300px;border-radius:12px;line-height:1.5; font-family:Arial,sans-serif; }";
+	html += "#popupWindow label { vertical-align:top;float:left;clear:both; }\n";
+	html += "#popupWindow input[type=text] { margin-left:8px;width:256px; }\n";
+	html += "#popupWindow textarea { margin-left:8px;width:256px;height:72px; }\n";
+	html += "#popupWindow span { font-size:8pt;float:left;clear:both; }\n";
+	html += "#popupWindow button { float:right;margin-right:8px; }\n";
+	html += "</style>";
+	html += '<div id="modlist">';
+	html += '<span' + (!module ? ' class="modselected"' : ' onclick="VocabApp.selectModule()"') + ' title="All">All ' + " (" + total + ')</span>';
+	for(var m in modlist)
+	    html += '<span' + (module == m ? ' class="modselected"' : ' onclick="VocabApp.selectModule(\'' + m + '\')"') + ' title="' + m + '">' + m + " (" + modlist[m] + ")</span>";
+	html += "</div>";
+	html += '<div id="itemlist">';
+	html += '<table cellspacing=0><thead><tr>';
 	for(var f in fields) {
 	    if(f == "Module" && module) continue;
-	    var formatter = (typeof fields[f] == 'function') ? fields[f] : function(item) { return item.hasOwnProperty(fields[f]) ? item[fields[f]] : "N/A"; };
-	    html += "<td>" + formatter(items[i].item) + "</td>";
+	    html += '<th>' + f + "</th>";
 	}
-	html += '<td><img src="edit.png" alt="Edit" title="Edit" onclick="VocabApp.editItem(' + items[i].index + ')" /><img src="remove.png" alt="Delete" title="Delete" onclick="VocabApp.deleteItem(' + items[i].index + ')" /></td>';
-	html += "</tr>";
+	html += "<th></th></tr></thead><tbody>";
+	for(var i in items) {
+	    html += '<tr>';
+	    for(var f in fields) {
+		if(f == "Module" && module) continue;
+		var formatter = (typeof fields[f] == 'function') ? fields[f] : function(item) { return item.hasOwnProperty(fields[f]) ? item[fields[f]] : "N/A"; };
+		html += "<td>" + formatter(items[i].item) + "</td>";
+	    }
+	    html += '<td><img src="edit.png" alt="Edit" title="Edit" onclick="VocabApp.editItem(' + items[i].index + ')" /><img src="remove.png" alt="Delete" title="Delete" onclick="VocabApp.deleteItem(' + items[i].index + ')" /></td>';
+	    html += "</tr>";
+	}
+	html += "</tbody></table></div>";
+	html += '<img id="addbtn" src="add.png" alt="Add Item" title="Add Item" onclick="VocabApp.addItem();" />';
+	html += '<div id="popup"><div id="popupCover" onclick="VocabApp.UI.hidePopup()"></div><div id="popupWindow">Test</div></div>';
     }
-    html += "</tbody></table></div>";
-    html += '<img id="addbtn" src="add.png" alt="Add Item" title="Add Item" onclick="VocabApp.addItem();" />';
-    html += '<div id="popup"><div id="popupCover" onclick="VocabApp.UI.hidePopup()"></div><div id="popupWindow">Test</div></div>';
     document.getElementById(this.ContainerId).innerHTML = html;
 };
 VocabUI.prototype.showPopup = function(msg, data) {
@@ -255,15 +351,31 @@ var getPopupFormData = function() {
     VocabApp.UI.hidePopup();
     return {"index":idx, "item":form};
 };
+// File loading functions
+var loadLocalFile = function(input) {
+    input.disabled = true;
+    try {
+	document.getElementById('fileStatus').innerHTML = "Loading file...";
+	VocabApp.initialise(VocabApp.UI.ContainerId,
+			    new LocalFileDbSrc(input.files[0]));
+    }
+    catch(e) {
+	input.disabled = false;
+    }
+};
 
 // VocabApp: Object handling the application
 var VocabApp = {
     "initialise":function(containerId, dbsrc) {
 	this.DB = new VocabDB(dbsrc || new SimulDbSrc())
 	this.UI = new VocabUI(containerId);
-	this.UI.render({"modlist":this.DB.Get({"mods":1}),
-			"items":this.DB.Get(),
-			"total":this.DB.Get().length });
+	if(!this.DB.LoadStatus) this.UI.render({"init":false});
+	else if(this.DB.LoadStatus < 2)
+	    // Wait till DB is initialised
+	    window.setTimeout(VocabApp.initialise, 1000, containerId, dbsrc);
+	else this.UI.render({"modlist":this.DB.Get({"mods":1}),
+			     "items":this.DB.Get(),
+			     "total":this.DB.Get().length });
 	this.module = undefined;
     },
     "selectModule":function(modname) {

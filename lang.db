@@ -1,1 +1,6 @@
-#Module,Phrase,Translation,Usage[1]:Translation[1],Usage[n]:Translation[n]
+#Phrase,Translation,Module,Usage[1]:Translation[1],Usage[n]:Translation[n]
+ik,I,Basics,Ik ben:I am
+jij,you,Basics,Jij bent:You are
+je,you,Basics,Je bent:You are,Ik heb je:I have you
+wij,we
+rennen,to run,Verbs,Ik ren:I run,Je rent:You run,Wij rennen
