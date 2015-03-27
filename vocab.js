@@ -6,7 +6,7 @@ var VocabDB = function(dbsrc) {
     if(!(dbsrc instanceof IDbSrc))
 	throw new TypeError("dbsrc does not implement IDbSrc");
     this.DB = dbsrc;
-    Object.defineProperty(this, "LoadStatus", {get:function(){return this.DB.hasOwnProperty("LoadStatus") ? this.DB.LoadStatus : 2; }});
+    Object.defineProperty(this, "Status", {get:function(){return this.DB.hasOwnProperty("Status") ? this.DB.Status : 2; }});
 };
 VocabDB.prototype.Get = function(query) {
     return this.DB.get(query);
@@ -18,7 +18,7 @@ VocabDB.prototype.Delete = function(query) {
     return this.DB.del(query);
 };
 
-// IDbSrc: Interface to be implemented by a database source
+// IDbSrc: Abstract interface to be implemented by a database source
 var IDbSrc = function(){};
 var unimplemented = function() {
     throw new Error("Function is unimplemented!");
@@ -72,14 +72,18 @@ SimulDbSrc.prototype.set = function(q){
     var item = q.hasOwnProperty("item") ? q.item : undefined;
     if(!item || typeof item != "object") throw new Error();
     // No validation on the item
-    if(index && !isNaN(index) && index < this.db.length)
-	for(prop in item) this.db[index][prop] = item[prop];
+    if(!isNaN(index) && index < this.db.length) {
+	this.db[index] = item;
+	//for(prop in item) this.db[index][prop] = item[prop];
+    }
     else this.db.push(item);
 };
 SimulDbSrc.prototype.del = function(q){
+    console.debug(q);
     if(!q || typeof q != "object") throw new TypeError();
-    var index = q.hasOwnProperty("index") ? q.index : undefined;
-    if(index && index < this.db.length) this.db.splice(index, 1);
+    var index = q.hasOwnProperty("index") ? parseInt(q.index) : undefined;
+    console.debug(index);
+    if(!isNaN(index) && index < this.db.length) this.db.splice(index, 1);
 };
 // Extends IDbSrc
 SimulDbSrc.prototype.getmods = function(){
@@ -96,56 +100,99 @@ SimulDbSrc.prototype.getmods = function(){
 // LocalFileDbSrc: Object abstracting and wrapping operations for a local file
 //>with a special format acting as a database.
 // Constructor
-var LocalFileDbSrc = function(fileobj/*, onload, onfail*/) {
+var LocalFileDbSrc = function(fileobj) {
     // Variables indicating status
-    this.LoadStatus = 0;
+    this.Status = 1;
     this.File = undefined;
-    this.Modified = undefined;
     // Array to contain data items
     this.db = [];
     // Load file object, if any
-    if(fileobj) {
-	this.File = fileobj;
-	this.LoadStatus = 1;
+    if(!fileobj) {
+	try {
+	    this.File = new LocalFsDbFile(this);
+	}
+	catch(e) { this.File = undefined; this.Status = 0; }
+    }
+    else {
 	try {
 	    var reader = new LocalDbFileReader(this);
 	    reader.readAsText(fileobj);
 	}
-	catch(e) { this.File = undefined; this.LoadStatus = 0; }
+	catch(e) { this.File = undefined; this.Status = 0; }
     }
 };
 // Implements IDbSrc
 LocalFileDbSrc.prototype = Object.create(IDbSrc.prototype);
 LocalFileDbSrc.prototype.get = function(q) {
+    // Get from memory, no need to read the file again
     return SimulDbSrc.prototype.get.call(this, q);
 };
-LocalFileDbSrc.prototype.set = function(q){};
-LocalFileDbSrc.prototype.del = function(q){};
+LocalFileDbSrc.prototype.set = function(q){
+    // Update in memory
+    SimulDbSrc.prototype.set.call(this, q);
+    // Update file
+    if(this.File && (this.File instanceof LocalFsDbFile))
+	this.File.Write(this.db);
+};
+LocalFileDbSrc.prototype.del = function(q) {
+    // Update in memory
+    SimulDbSrc.prototype.del.call(this, q);
+    // Update file
+    if(this.File && (this.File instanceof LocalFsDbFile))
+	this.File.Write(this.db);
+};
 // ExtendsIDbSrc
 LocalFileDbSrc.prototype.getmods = function(){
-    var mods = {};
-    for(var i in this.db) {
-	if(!this.db[i].hasOwnProperty("module")) continue;
-	if(!mods.hasOwnProperty(this.db[i].module))
-	    mods[this.db[i].module] = 1;
-	else ++mods[this.db[i].module];
-    }
-    return mods;
+    return SimulDbSrc.prototype.getmods.call(this);
 };
 
-// LocalDbFileReader: Special FileReader
-var LocalDbFileReader = function(parentdb){
-    if(!parentdb || !(parentdb instanceof LocalFileDbSrc))
-	throw new TypeError();
-    var f = new FileReader();
-    f.parent =  parentdb;
-    f.onloadend = function(e) {
-	this.parent.LoadStatus = 2;
-	if(!this.parent.Modified
-	   || this.parent.File.lastModified > this.parent.Modified) {
-	    this.parent.Modified = this.parent.File.lastModified;
+// LocalFsDbFile: Object wrapping operations on a sandboxed local filesystem
+//>database file.
+var LocalFsDbFile = function(parentDb, dbfile/*, onsuccess, onfail*/) {
+    if(!parentDb || !(parentDb instanceof LocalFileDbSrc))
+       throw new TypeError();
+    this.Parent = parentDb;
+    this.FileEntry = undefined;
+    var parentInstance = this;
+    dbfile = dbfile || 'lang.db';
+    var maxsize = 10 * 1024 * 1024; // I don't expect it to grow more than 10MB
+    // Using the local filesystem API
+    var quotaGranted = function(q) {
+	var onInit = function(fs){
+	    var onRead = function(f) {
+		parentDb.Status = 2;
+		parentInstance.FileEntry = f;
+		parentInstance.Read();
+	    };
+	    var onError = function(e) {
+		console.error(e); parentDb.Status = 0;
+	    };
+	    fs.root.getFile(dbfile, {create:"true"}, onRead, onError);
+	};
+	window.webkitRequestFileSystem(PERSISTENT, q, onInit);
+    };
+    var errFunction = function(e) {
+	var msg = /chrom/i.test(window.navigator.userAgent) ? "Please relaunch Chrome with --allow-file-access-from-files" : "Error";
+	window.alert(msg);
+	console.error(msg);
+    };
+    if(navigator.webkitPersistentStorage)
+	navigator.webkitPersistentStorage.requestQuota(maxsize,
+						       quotaGranted,
+                                                       errFunction);
+    else if(window.webkitStorageInfo)
+	window.webkitStorageInfo.requestQuota(PERSISTENT,
+					      maxsize, quotaGranted,
+					      errFunction);
+    else throw new Error('Unsupported');
+};
+LocalFsDbFile.prototype.Read = function() {
+    var parentDb = this.Parent;
+    var onRead = function(file) {
+	var r = new FileReader();
+	r.onloadend = function(e) {
 	    var lines = this.result.trim().split('\n');
-	    this.parent.db = [];
+	    parentDb.db = [];
 	    for(var i in lines) {
 		var cleanline = lines[i].trim(), c = cleanline[0];
 		// The following RegExp could need lots of improvements
@@ -168,14 +215,86 @@ var LocalDbFileReader = function(parentdb){
 			}
 			if(usage.length) item.usage = usage;
 		    }
-		    this.parent.db.push(item);
+		    parentDb.db.push(item);
 		}
+	    }
+	};
+	r.readAsText(file);
+    };
+    var onError = function(e) { console.error(e); };
+    this.FileEntry.file(onRead, onError);
+};
+LocalFsDbFile.prototype.Write = function(data, append) {
+    var fe = this.FileEntry;
+    this.FileEntry.createWriter(function(truncator) {
+	truncator.onwriteend = function(e) {
+	    fe.createWriter(function(fileWriter) {
+		fileWriter.onwriteend = function(e) {
+		    console.log('Write completed to ' + fe.toURL());
+		};
+		var l = [];
+		for(var i in data) {
+		    var line = data[i].phrase + ',' + data[i].translation + ',' + (data[i].hasOwnProperty("module") && data[i].module.length ? data[i].module : '');
+		    if(data[i].hasOwnProperty("usage") && data[i].usage.length){
+			for(var j in data[i].usage) {
+			    line += ',' + data[i].usage[j].usage + ':' + data[i].usage[j].translation;
+			}
+		    }
+		    else line += ',';
+		    line += '\n';
+		    l.push(line);
+		}
+		var blob = new Blob(l, {type: 'text/plain'});
+		fileWriter.write(blob);
+	    });
+	};
+	truncator.onerror = function(e) {
+            console.log('Write failed: ' + e.toString());
+	};
+	truncator.truncate(0);
+    });
+};
+
+// LocalDbFileReader: Special FileReader (I should obsolete it)
+var LocalDbFileReader = function(parentdb){
+    if(!parentdb || !(parentdb instanceof LocalFileDbSrc))
+	throw new TypeError();
+    var f = new FileReader();
+    f.parent =  parentdb;
+    f.onloadend = function(e) {
+	this.parent.Status = 2;
+	var lines = this.result.trim().split('\n');
+	this.parent.db = [];
+	for(var i in lines) {
+	    var cleanline = lines[i].trim(), c = cleanline[0];
+	    // The following RegExp could need lots of improvements
+	    var re = /[^,]+,[^,]+(,[^,]+)?(,[^,:]+:[^,:]+)*/;
+	    if(c && c != '#' && re.test(cleanline)) {
+		var flds = cleanline.split(',');
+		var item = { "phrase":flds[0].trim(),
+			     "translation":flds[1].trim() };
+		if(flds.length > 2) {
+		    if(flds[2]) item.module = flds[2];
+		    if(flds.length > 3) {
+			var usage = [];
+			for(var j = 3; j < flds.length; ++j) {
+			    if(/[^:]+:[^:]/.test(flds[j])) {
+				var usages = flds[j].split(':');
+				usage.push({"usage":usages[0].trim(),
+					    "translation":usages[1].trim()})
+			    }
+			}
+		    }
+		    if(usage.length) item.usage = usage;
+		}
+		this.parent.db.push(item);
 	    }
 	}
     };
     f.onerror = function(e) {
-	this.parent.LoadStatus = 0;
+	this.parent.Status = 0;
 	this.parent.File = undefined;
+	this.parent.FileSrc = undefined;
 	this.parent.Modified = undefined;
     }
     return f;
@@ -217,7 +336,7 @@ VocabUI.prototype.render = function(q){
 	popup += "#filePopupWindow { z-index:999;position:absolute;left:25%;top:15%;right:25%;bottom:35%;background:white;opacity:1;padding:4px;min-width:400px;min-height:300px;border-radius:12px;line-height:1.5; font-family:Arial,sans-serif; }";
 	popup += "#fileStatus { font-size:9pt;cursor:default; }";
 	popup += "</style>";
-	popup += '<div id="filePopup"><div id="filePopupCover"></div><div id="filePopupWindow"><h2>Select DB file</h2><input type="file" onchange="loadLocalFile(this)" /><span id="fileStatus"></span></div></div>';
+	popup += '<div id="filePopup"><div id="filePopupCover"></div><div id="filePopupWindow"><h2>Select DB file</h2><input type="file" onchange="loadLocalFile(this);" /><span id="fileStatus"></span></div></div>';
 	html = popup;
     }
     else {
@@ -324,16 +443,19 @@ var getPopupFormData = function() {
 	form[PopupFields[i]] = document.querySelector("#popupWindow [name=" + PopupFields[i] + "]").value;
     }
     var idx = document.querySelector("#popupWindow [name=saveItem]").dataset.index;
-    console.debug(idx);
     if(!form.phrase || !form.translation) {
 	window.alert("Missing data");
 	return false;
     }
+    if(!form.module) delete form.module;
+    console.debug(form, idx);
     var re = /([^:]+\s*:\s*[^:]+\s*,*\s*)+/;
     if(!form.usage) {
 	VocabApp.UI.hidePopup();
+	delete form.usage;
 	return {"index":idx, "item":form};
     }
+    console.debug(form.usage);
     if(!re.test(form.usage)) {
 	alert("Invalid comma-separated list of column-separated tuples with the form [usage]:[translation] was provided");
 	return false;
@@ -369,10 +491,10 @@ var VocabApp = {
     "initialise":function(containerId, dbsrc) {
 	this.DB = new VocabDB(dbsrc || new SimulDbSrc())
 	this.UI = new VocabUI(containerId);
-	if(!this.DB.LoadStatus) this.UI.render({"init":false});
-	else if(this.DB.LoadStatus < 2)
+	if(!this.DB.Status) this.UI.render({"init":false});
+	else if(this.DB.Status < 2)
 	    // Wait till DB is initialised
-	    window.setTimeout(VocabApp.initialise, 1000, containerId, dbsrc);
+	    window.setTimeout(VocabApp.initialise, 500, containerId, dbsrc);
 	else this.UI.render({"modlist":this.DB.Get({"mods":1}),
 			     "items":this.DB.Get(),
 			     "total":this.DB.Get().length });
