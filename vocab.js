@@ -79,10 +79,8 @@ SimulDbSrc.prototype.set = function(q){
     else this.db.push(item);
 };
 SimulDbSrc.prototype.del = function(q){
-    console.debug(q);
     if(!q || typeof q != "object") throw new TypeError();
     var index = q.hasOwnProperty("index") ? parseInt(q.index) : undefined;
-    console.debug(index);
     if(!isNaN(index) && index < this.db.length) this.db.splice(index, 1);
 };
 // Extends IDbSrc
@@ -133,6 +131,10 @@ LocalFileDbSrc.prototype.set = function(q){
     // Update file
     if(this.File && (this.File instanceof LocalFsDbFile))
 	this.File.Write(this.db);
+    else {
+	var msg = 'Read-only mode.\nModifications are only applied in memory and will be lost when the application is closed.\nPlease use Webkit Filesystem API supported browser for persistence.';
+	console.warn(msg); window.alert(msg);
+    }
 };
 LocalFileDbSrc.prototype.del = function(q) {
     // Update in memory
@@ -140,6 +142,10 @@ LocalFileDbSrc.prototype.del = function(q) {
     // Update file
     if(this.File && (this.File instanceof LocalFsDbFile))
 	this.File.Write(this.db);
+    else {
+	var msg = 'Read-only mode.\nModifications are only applied in memory and will be lost when the application is closed.\nPlease use Webkit Filesystem API supported browser for persistence.';
+	console.warn(msg); window.alert(msg);
+    }
 };
 // ExtendsIDbSrc
 LocalFileDbSrc.prototype.getmods = function(){
@@ -153,6 +159,7 @@ var LocalFsDbFile = function(parentDb, dbfile/*, onsuccess, onfail*/) {
        throw new TypeError();
     this.Parent = parentDb;
     this.FileEntry = undefined;
+    this.NotifierId = 'notifier' + new Date().valueOf().toString();
     var parentInstance = this;
     dbfile = dbfile || 'lang.db';
     var maxsize = 10 * 1024 * 1024; // I don't expect it to grow more than 10MB
@@ -176,18 +183,27 @@ var LocalFsDbFile = function(parentDb, dbfile/*, onsuccess, onfail*/) {
 	window.alert(msg);
 	console.error(msg);
     };
-    if(navigator.webkitPersistentStorage)
+    // Notifier html
+    var html = '<style type="text/css">';
+    html += '#' + this.NotifierId + ' { font:9pt Arial,sans-serif;position:absolute;bottom:4px;right:4px;height:16px;border:1px solid #f0c36d;background:#f9edbe;padding:3px;/*display:none;*/}';
+    html += '</style><div id="' + this.NotifierId + '">Loading...</div>';
+    //
+    if(navigator.webkitPersistentStorage) {
+	document.body.innerHTML += html;
 	navigator.webkitPersistentStorage.requestQuota(maxsize,
 						       quotaGranted,
                                                        errFunction);
-    else if(window.webkitStorageInfo)
+    }
+    else if(window.webkitStorageInfo) {
+	document.body.innerHTML += html;	
 	window.webkitStorageInfo.requestQuota(PERSISTENT,
 					      maxsize, quotaGranted,
 					      errFunction);
+    }
     else throw new Error('Unsupported');
 };
 LocalFsDbFile.prototype.Read = function() {
-    var parentDb = this.Parent;
+    var parentDb = this.Parent, notifier = this.NotifierId;
     var onRead = function(file) {
 	var r = new FileReader();
 	r.onloadend = function(e) {
@@ -217,6 +233,7 @@ LocalFsDbFile.prototype.Read = function() {
 		    }
 		    parentDb.db.push(item);
 		}
+		document.getElementById(notifier).innerHTML = 'Loaded';
 	    }
 	};
 	r.readAsText(file);
@@ -224,15 +241,20 @@ LocalFsDbFile.prototype.Read = function() {
     var onError = function(e) { console.error(e); };
     this.FileEntry.file(onRead, onError);
 };
-LocalFsDbFile.prototype.Write = function(data, append) {
-    var fe = this.FileEntry;
+LocalFsDbFile.prototype.Write = function(data/*, append*/) {
+    var fe = this.FileEntry, notifier = this.NotifierId;
+    document.getElementById(notifier).innerHTML = 'Writing...';
     this.FileEntry.createWriter(function(truncator) {
 	truncator.onwriteend = function(e) {
 	    fe.createWriter(function(fileWriter) {
 		fileWriter.onwriteend = function(e) {
-		    console.log('Write completed to ' + fe.toURL());
+		    document.getElementById(notifier).innerHTML = 'Successfully written to <a href="' + fe.toURL() + '" target="_blank">' + fe.toURL() + '</a>';
 		};
-		var l = [];
+		fileWriter.onerror= function(e) {
+		    document.getElementById(notifier).innerHTML = 'Write failed: ' + e.toString();
+		};
+		var l = ['# This file was automatically generated\n',
+			 '# Phrase,Translation,[Module],[usage[1]:translation[1],...,usage[n]:translation[n]]\n'];
 		for(var i in data) {
 		    var line = data[i].phrase + ',' + data[i].translation + ',' + (data[i].hasOwnProperty("module") && data[i].module.length ? data[i].module : '');
 		    if(data[i].hasOwnProperty("usage") && data[i].usage.length){
@@ -249,7 +271,7 @@ LocalFsDbFile.prototype.Write = function(data, append) {
 	    });
 	};
 	truncator.onerror = function(e) {
-            console.log('Write failed: ' + e.toString());
+	    document.getElementById(notifier).innerHTML = 'Write failed: ' + e.toString();
 	};
 	truncator.truncate(0);
     });
@@ -448,14 +470,12 @@ var getPopupFormData = function() {
 	return false;
     }
     if(!form.module) delete form.module;
-    console.debug(form, idx);
     var re = /([^:]+\s*:\s*[^:]+\s*,*\s*)+/;
     if(!form.usage) {
 	VocabApp.UI.hidePopup();
 	delete form.usage;
 	return {"index":idx, "item":form};
     }
-    console.debug(form.usage);
     if(!re.test(form.usage)) {
 	alert("Invalid comma-separated list of column-separated tuples with the form [usage]:[translation] was provided");
 	return false;
