@@ -1,2 +1,6 @@
-# This file was automatically generated
-# Phrase,Translation,[Module],[usage[1]:translation[1],...,usage[n]:translation[n]]
+# This file was automatically generated. Manual modifications could lead to
+#>inconsistencies and data corruption, please edit it with care.
+
+# File format:
+# PHRASE,TRANSLATION,[MODULE],[USAGE(1):TRANSLATION(1),...,USAGE(n):TRANSLATION(n)]
+

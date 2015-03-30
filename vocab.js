@@ -233,7 +233,8 @@ LocalFsDbFile.prototype.Read = function() {
 		    }
 		    parentDb.db.push(item);
 		}
-		document.getElementById(notifier).innerHTML = 'Loaded';
+		var furl = parentDb.File.FileEntry.toURL()
+		document.getElementById(notifier).innerHTML = 'Loaded file <a href="' + furl + '" target="_blank">' + furl + '</a>';
 	    }
 	};
 	r.readAsText(file);
@@ -253,8 +254,7 @@ LocalFsDbFile.prototype.Write = function(data/*, append*/) {
 		fileWriter.onerror= function(e) {
 		    document.getElementById(notifier).innerHTML = 'Write failed: ' + e.toString();
 		};
-		var l = ['# This file was automatically generated\n',
-			 '# Phrase,Translation,[Module],[usage[1]:translation[1],...,usage[n]:translation[n]]\n'];
+		var l = [ commentOut('This file was automatically generated. Manual modifications could lead to inconsistencies and data corruption, please edit it with care.'), '\n', commentOut('Line format:'), commentOut('PHRASE,TRANSLATION,[MODULE],[USAGE(1):TRANSLATION(1),...,USAGE(n):TRANSLATION(n)]', !0), '\n'];
 		for(var i in data) {
 		    var line = data[i].phrase + ',' + data[i].translation + ',' + (data[i].hasOwnProperty("module") && data[i].module.length ? data[i].module : '');
 		    if(data[i].hasOwnProperty("usage") && data[i].usage.length){
@@ -276,6 +276,34 @@ LocalFsDbFile.prototype.Write = function(data/*, append*/) {
 	truncator.truncate(0);
     });
 };
+var commentOut = function(text, force, width) {
+    width = width || 80;
+    var actWidth = width - 2;
+    if(text.length <= actWidth || force) return ('# ' + text + '\n');
+    else {
+	var idx, re = /\s+[^\s]+/, str = '', tmp, formatted = [], done = false;
+	while(str.length <= actWidth && !done) {
+	    idx = text.search(re);
+	    if(idx < 0) {
+		done = true;
+		tmp = text; idx = tmp.length;
+	    }
+	    else tmp = text.substr(0, idx);
+	    if((str + tmp).length > actWidth) {
+		formatted.push(str.trimRight());
+		str = '';
+	    }
+	    str += text.substr(0, idx);
+	    text = text.substr(idx);
+	    while(text[0] !== undefined && /\s/.test(text[0])) {
+		if(str.length < actWidth) str += text[0];
+		text = text.substr(1);
+	    }
+	}
+	if(str) formatted.push(str.trimRight());
+	return ('# ' + formatted.join('\n#>') + '\n');
+    };
+}
 
 // LocalDbFileReader: Special FileReader (I should obsolete it)
 var LocalDbFileReader = function(parentdb){
