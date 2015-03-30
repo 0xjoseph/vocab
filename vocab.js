@@ -254,7 +254,7 @@ LocalFsDbFile.prototype.Write = function(data/*, append*/) {
 		fileWriter.onerror= function(e) {
 		    document.getElementById(notifier).innerHTML = 'Write failed: ' + e.toString();
 		};
-		var l = [ commentOut('This file was automatically generated. Manual modifications could lead to inconsistencies and data corruption, please edit it with care.'), '\n', commentOut('Line format:'), commentOut('PHRASE,TRANSLATION,[MODULE],[USAGE(1):TRANSLATION(1),...,USAGE(n):TRANSLATION(n)]', !0), '\n'];
+		var l = [ commentOut('This database file was automatically generated. Manual modifications could lead to inconsistencies and data corruption, please edit it with care.'), '\n', commentOut('Line format:'), commentOut('PHRASE,TRANSLATION,[MODULE],[USAGE(1):TRANSLATION(1),...,USAGE(n):TRANSLATION(n)]', !0), '\n'];
 		for(var i in data) {
 		    var line = data[i].phrase + ',' + data[i].translation + ',' + (data[i].hasOwnProperty("module") && data[i].module.length ? data[i].module : '');
 		    if(data[i].hasOwnProperty("usage") && data[i].usage.length){
