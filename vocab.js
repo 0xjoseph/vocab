@@ -185,7 +185,7 @@ var LocalFsDbFile = function(parentDb, dbfile/*, onsuccess, onfail*/) {
     };
     // Notifier html
     var html = '<style type="text/css">';
-    html += '#' + this.NotifierId + ' { font:9pt Arial,sans-serif;position:absolute;bottom:4px;right:4px;height:16px;border:1px solid #f0c36d;background:#f9edbe;padding:3px;/*display:none;*/}';
+    html += '#' + this.NotifierId + ' { font:9pt Arial,sans-serif;position:fixed;bottom:4px;right:4px;height:16px;border:1px solid #f0c36d;background:#f9edbe;padding:3px;/*display:none;*/}';
     html += '</style><div id="' + this.NotifierId + '">Loading...</div>';
     //
     if(navigator.webkitPersistentStorage) {
@@ -448,6 +448,37 @@ VocabUI.prototype.render = function(q){
 	html += '<div id="popup"><div id="popupCover" onclick="VocabApp.UI.hidePopup()"></div><div id="popupWindow">Test</div></div>';
     }
     document.getElementById(this.ContainerId).innerHTML = html;
+    var handler = function(e){
+	var itemlist = document.getElementById('itemlist');
+	var itemrect = itemlist.getBoundingClientRect();
+	var modlist = document.getElementById('modlist');
+	var modrect = modlist.getBoundingClientRect();
+	var addbtn = document.getElementById('addbtn');
+	var addrect = addbtn.getBoundingClientRect();
+	if(itemlist.style.position != "absolute") {
+	    itemlist.style.position = "absolute";
+	    itemlist.style.top = itemrect.top + "px";
+	    itemlist.style.left = itemrect.left + "px";
+	}
+	if(modlist.style.position != "fixed") {
+	    modlist.style.position = "fixed";
+	    modlist.style.left = modrect.left + "px";
+	    modlist.style.top = modrect.top + "px";
+	}
+	if(addbtn.style.position != "fixed") {
+	    addbtn.style.position = "fixed";
+	    addbtn.style.left = addrect.left + "px";
+	    addbtn.style.top = addrect.top + "px";
+	}
+	var bodyrect = document.body.getBoundingClientRect();
+	var popupCover = document.getElementById("popupCover");
+	popupCover.style.top = bodyrect.top + "px";
+	popupCover.style.bottom = bodyrect.bottom + "px";
+	popupCover.style.left = bodyrect.left + "px";
+	popupCover.style.right = (bodyrect.right - bodyrect.width) + "px";
+    };
+    document.removeEventListener('wheel', handler);
+    document.addEventListener('wheel', handler);
 };
 VocabUI.prototype.showPopup = function(msg, data) {
     if(msg) {
@@ -479,6 +510,9 @@ VocabUI.prototype.showPopup = function(msg, data) {
 	document.getElementById("popupWindow").innerHTML = msg;
     }
     document.getElementById("popup").style.display = "block";
+    document.getElementById("modlist").style.position = "static";
+    document.getElementById("itemlist").style.position = "static";
+    document.getElementById("addbtn").style.position = "static";
 };
 VocabUI.prototype.hidePopup = function(msg) {
     document.getElementById("popup").style.display = "none";
